@@ -1,0 +1,158 @@
+name: Build Tauri App for Raspberry Pi
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libudev-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: shooting-range/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './shooting-range/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        working-directory: shooting-range
+        run: npm ci
+
+      - name: Build Tauri app
+        working-directory: shooting-range
+        run: npm run tauri build
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shooting-range-arm64-deb
+          path: shooting-range/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shooting-range-arm64-appimage
+          path: shooting-range/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+  # Also build for x86_64 Linux
+  build-x64:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libudev-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: shooting-range/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './shooting-range/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        working-directory: shooting-range
+        run: npm ci
+
+      - name: Build Tauri app
+        working-directory: shooting-range
+        run: npm run tauri build
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shooting-range-x64-deb
+          path: shooting-range/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shooting-range-x64-appimage
+          path: shooting-range/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+  # Create release when tagged
+  release:
+    needs: [build-arm64, build-x64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download ARM64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shooting-range-arm64-deb
+          path: ./artifacts/arm64
+
+      - name: Download x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shooting-range-x64-deb
+          path: ./artifacts/x64
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./artifacts/arm64/*.deb
+            ./artifacts/x64/*.deb
+          draft: false
+          prerelease: false
+          generate_release_notes: true
